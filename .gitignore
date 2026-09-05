@@ -1,0 +1,24 @@
+# Private clinic records and source imports
+data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.xlsx
+*.xls
+*.csv
+IMPORT-NOTES.json
+uploads/
+backups/
+*.zip
+
+# Credentials and local runtime state
+.env
+.env.*
+!.env.example
+.vercel/
+__pycache__/
+*.py[cod]
+*.log
+.DS_Store
+Thumbs.db
