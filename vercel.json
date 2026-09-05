@@ -6,8 +6,5 @@
       "maxDuration": 60,
       "excludeFiles": "{data/**,backups/**,uploads/**,tests/**,work/**,**/*.db,**/*.db-*,**/*.sqlite*,**/*.xlsx,**/*.xls,**/*.csv,**/*.zip,IMPORT-NOTES.json,.env,.env.*,__pycache__/**}"
     }
-  },
-  "git": {
-    "deploymentEnabled": false
   }
 }
