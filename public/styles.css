@@ -72,3 +72,13 @@ dialog{border:1px solid #dac9a8;border-radius:22px;box-shadow:0 28px 90px #44331
 @media(max-width:1100px){.pagehead{padding:22px}.auth-left{padding:40px 8%}.auth-right{padding:40px 6%}.authform{padding:30px 26px}}
 @media(max-width:760px){.auth{grid-template-columns:1fr}.auth-left{padding:30px 28px 26px;min-height:0;align-items:center;text-align:center;border-right:0;border-bottom:1px solid #e5d8bd}.auth-left .brand{padding-bottom:17px}.auth-left .clinic-logo{width:102px}.auth-left>.eyebrow{font-size:8px;letter-spacing:2.5px;margin-bottom:10px}.auth-left h1{font-size:25px}.auth-left h1 em{font-size:33px}.auth-left>p,.auth-detail{display:none}.auth-right{padding:28px 22px 38px}.authform{max-width:440px;padding:27px 24px}.authform h2{font-size:24px}.content{padding:22px 18px}.pagehead{align-items:flex-start;padding:20px;gap:16px}.pagehead h1{font-size:23px}.pagehead p{font-size:12px}.pagehead .actions{width:100%}.stats{gap:12px}.stat{padding:17px;min-height:142px}.stat strong{font-size:27px}.stat-top{font-size:12px}.card-head{padding:19px}.card-body{padding:0 19px 20px}.sidebar .brand{padding:12px 20px 16px}.topbar{height:68px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* Larger signature logo and the clinic's official slogan. */
+.sidebar .clinic-logo{width:150px}
+.sidebar .brand{padding:16px 6px 20px;margin-bottom:4px}
+.auth-left .clinic-logo{width:260px}
+.auth-left .brand{padding-bottom:24px}
+.auth-left h1{max-width:100%;line-height:1.35}
+.auth-left .slogan-intro{font:italic 19px/1.6 Georgia,serif;letter-spacing:1.2px;color:#766044}
+.auth-left h1 em{display:inline-block;font-size:clamp(25px,2.55vw,38px);line-height:1.4;letter-spacing:.3px;font-weight:500}
+@media(max-width:760px){.auth-left .clinic-logo{width:180px}.sidebar .clinic-logo{width:150px}.sidebar .brand{padding:14px 6px 18px}.auth-left .brand{padding-bottom:18px}.auth-left .slogan-intro{font-size:15px}.auth-left h1 em{font-size:24px}.auth-left{padding-top:24px}}
