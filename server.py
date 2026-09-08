@@ -170,6 +170,8 @@ class Handler(BaseHTTPRequestHandler):
                 extra=one(c,'SELECT * FROM procedure_details WHERE procedure_id=?',(record['id'],))
                 record['appointment_id']=extra['appointment_id'] if extra else None
                 record['has_face']=bool(one(c,'SELECT procedure_id FROM procedure_faces WHERE procedure_id=?',(record['id'],)))
+                if u['role'] in ACCESS['finance']:
+                    record['receipt']=one(c,'SELECT f.*,x.payment_method FROM procedure_payments x JOIN finance f ON f.id=x.finance_id WHERE x.procedure_id=?',(record['id'],))
                 if u['role']=='Owner' and extra:
                     record['commission_base']=extra['commission_base'];record['commission_rate']=extra['commission_rate']
                 record['lots']=rows(c,'SELECT l.lot,l.expiry,x.qty,p.name FROM procedure_lots x JOIN lots l ON l.id=x.lot_id JOIN products p ON p.id=l.product_id WHERE x.procedure_id=?',(record['id'],))
@@ -185,7 +187,7 @@ class Handler(BaseHTTPRequestHandler):
             return {'products':stock,'lots':lots,'movements':rows(c,'SELECT m.*,l.lot,p.name FROM movements m JOIN lots l ON l.id=m.lot_id JOIN products p ON p.id=l.product_id ORDER BY m.id DESC LIMIT 200'),'legacy':rows(c,'SELECT * FROM source_stock ORDER BY date DESC,id DESC LIMIT 100') if c.execute("SELECT name FROM sqlite_master WHERE name='source_stock'").fetchone() else []}
         if key=='finance':
             if path=='/api/finance/patients':return rows(c,'SELECT id,hn,name FROM patients ORDER BY name')
-            data=rows(c,'SELECT * FROM finance ORDER BY date DESC,id DESC')
+            data=rows(c,'SELECT f.*,x.payment_method FROM finance f LEFT JOIN procedure_payments x ON x.finance_id=f.id ORDER BY f.date DESC,f.id DESC')
             if u['role']=='Front':
                 data=[r for r in data if r['kind']!='expense']
                 for r in data:r.pop('source_profit',None)
@@ -292,6 +294,25 @@ class Handler(BaseHTTPRequestHandler):
                 reason=textval(d,'reason');eid=l['id'];c.execute('UPDATE lots SET qty=qty-? WHERE id=?',(qty,eid));c.execute('INSERT INTO movements(lot_id,qty,reason,created,actor) VALUES(?,?,?,?,?)',(eid,-qty,reason,now(),u['id']))
             else:raise ValueError('ไม่พบคำสั่ง')
         elif key=='procedures':
+            if action=='payment':
+                allow(u,'finance',True)
+                procedure=one(c,'SELECT t.*,p.name FROM procedures t JOIN patients p ON p.id=t.patient_id WHERE t.id=?',(d.get('id'),))
+                if not procedure:raise ValueError('ไม่พบหัตถการ')
+                if one(c,'SELECT finance_id FROM procedure_payments WHERE procedure_id=?',(procedure['id'],)):raise ValueError('หัตถการนี้มีใบเสร็จแล้ว กรุณาเปิดพิมพ์จากรายการเดิม')
+                method=textval(d,'payment_method')
+                if method not in ['เงินสด','โอนเงิน','บัตรเครดิต / เดบิต','QR Payment','อื่น ๆ']:raise ValueError('กรุณาเลือกช่องทางชำระเงิน')
+                if d.get('finance_id'):
+                    receipt=one(c,"SELECT * FROM finance WHERE id=? AND kind='receipt'",(d['finance_id'],))
+                    if not receipt or receipt['patient_id']!=procedure['patient_id']:raise ValueError('ใบเสร็จไม่ตรงกับผู้รับบริการ')
+                    if one(c,'SELECT procedure_id FROM procedure_payments WHERE finance_id=?',(receipt['id'],)):raise ValueError('ใบเสร็จนี้เชื่อมกับหัตถการอื่นแล้ว')
+                    receipt_id=receipt['id']
+                else:
+                    if d.get('paid_confirmed') is not True:raise ValueError('กรุณายืนยันว่าได้รับชำระเงินจริงแล้ว')
+                    amount=number(d,'amount',0.01)
+                    receipt_id=c.execute('INSERT INTO finance(kind,patient_id,customer,description,amount,date,source) VALUES(?,?,?,?,?,?,?)',('receipt',procedure['patient_id'],procedure['name'],procedure['service'],amount,validdate(textval(d,'date')),'หัตถการ #'+str(procedure['id']))).lastrowid
+                c.execute('INSERT INTO procedure_payments(procedure_id,finance_id,payment_method) VALUES(?,?,?)',(procedure['id'],receipt_id,method))
+                audit(c,u,'รับชำระ / เชื่อมใบเสร็จ','procedures',procedure['id'],'ใบเสร็จ #'+str(receipt_id))
+                return {'id':receipt_id}
             p=patient(c,d)
             appointment=None
             if d.get('appointment_id'):

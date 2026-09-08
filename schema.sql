@@ -20,3 +20,4 @@ CREATE TABLE IF NOT EXISTS login_attempts(id INTEGER PRIMARY KEY,key TEXT NOT NU
 CREATE INDEX IF NOT EXISTS login_attempts_lookup ON login_attempts(key,created);
 CREATE TABLE IF NOT EXISTS procedure_faces(procedure_id INTEGER PRIMARY KEY REFERENCES procedures(id),original TEXT NOT NULL,simulation TEXT NOT NULL,notes TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS procedure_details(procedure_id INTEGER PRIMARY KEY REFERENCES procedures(id),appointment_id INTEGER UNIQUE REFERENCES appointments(id),commission_base REAL NOT NULL DEFAULT 0,commission_rate REAL NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS procedure_payments(procedure_id INTEGER PRIMARY KEY REFERENCES procedures(id),finance_id INTEGER NOT NULL UNIQUE REFERENCES finance(id),payment_method TEXT NOT NULL);
