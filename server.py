@@ -133,6 +133,11 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:self.reply({'error':'ไม่สามารถทำรายการได้ กรุณาตรวจสอบข้อมูลและลองใหม่'},500)
     def read(self,c,u,path,q):
         key=path.split('/')[2];allow(u,key)
+        if path=='/api/procedures/face':
+            pid=q.get('id',[''])[0]
+            face=one(c,'SELECT * FROM procedure_faces WHERE procedure_id=?',(pid,))
+            audit(c,u,'เปิด Face Detail / Simulation','procedures',pid)
+            return face or {}
         if key=='dashboard':
             result={'patients':c.execute('SELECT COUNT(*) FROM patients').fetchone()[0] if u['role'] in ACCESS['patients'] else None,'appointments':rows(c,'SELECT a.*,p.name FROM appointments a JOIN patients p ON p.id=a.patient_id WHERE substr(start,1,10)=? ORDER BY start',(today(),)) if u['role'] in ACCESS['appointments'] else [],'low':c.execute('SELECT COUNT(*) FROM products p WHERE opening+COALESCE((SELECT SUM(qty) FROM lots WHERE product_id=p.id),0)<=min_stock').fetchone()[0] if u['role'] in ACCESS['inventory'] else None}
             if u['role'] in ['Owner','บัญชี']:
@@ -162,6 +167,11 @@ class Handler(BaseHTTPRequestHandler):
                 audit(c,u,'เปิดภาพเวชระเบียน','photos',r['id']);return (r['image'],r['mime'])
             data=rows(c,'SELECT t.*,p.name,p.hn FROM procedures t JOIN patients p ON p.id=t.patient_id ORDER BY t.id DESC')
             for record in data:
+                extra=one(c,'SELECT * FROM procedure_details WHERE procedure_id=?',(record['id'],))
+                record['appointment_id']=extra['appointment_id'] if extra else None
+                record['has_face']=bool(one(c,'SELECT procedure_id FROM procedure_faces WHERE procedure_id=?',(record['id'],)))
+                if u['role']=='Owner' and extra:
+                    record['commission_base']=extra['commission_base'];record['commission_rate']=extra['commission_rate']
                 record['lots']=rows(c,'SELECT l.lot,l.expiry,x.qty,p.name FROM procedure_lots x JOIN lots l ON l.id=x.lot_id JOIN products p ON p.id=l.product_id WHERE x.procedure_id=?',(record['id'],))
                 if u['role']!='Owner':
                     record.pop('doctor_fee',None);record.pop('commission',None)
@@ -232,17 +242,28 @@ class Handler(BaseHTTPRequestHandler):
                 else:c.execute('UPDATE appointments SET followup_note=? WHERE id=?',(textval(d,'followup_note'),eid))
             else:
                 p=patient(c,d)
+                editing=None
+                if action=='edit':
+                    editing=one(c,'SELECT * FROM appointments WHERE id=?',(d.get('id'),))
+                    if not editing:raise ValueError('ไม่พบนัดหมาย')
+                    if editing['status'] in ['ยกเลิก','เสร็จสิ้น']:raise ValueError('ไม่สามารถแก้ไขนัดที่ยกเลิกหรือเสร็จสิ้นแล้ว')
+                    if p['id']!=editing['patient_id']:raise ValueError('ไม่สามารถเปลี่ยนผู้รับบริการของนัดเดิม')
                 try:start=dt.datetime.fromisoformat(textval(d,'start')); start=start.replace(second=0,microsecond=0)
                 except:raise ValueError('วันเวลานัดหมายไม่ถูกต้อง')
                 duration=number(d,'duration',1,True)
                 if duration>480:raise ValueError('ระยะเวลาต้องไม่เกิน 480 นาที')
                 doctor=textval(d,'doctor');room=textval(d,'room');end=start+dt.timedelta(minutes=duration)
                 for a in rows(c,"SELECT * FROM appointments WHERE status!='ยกเลิก' AND (doctor=? OR room=? OR patient_id=?)",(doctor,room,p['id'])):
+                    if editing and a['id']==editing['id']:continue
                     other=dt.datetime.fromisoformat(a['start'])
                     if start<other+dt.timedelta(minutes=a['duration']) and end>other:raise ValueError('แพทย์ ห้อง หรือผู้รับบริการมีนัดทับซ้อนในช่วงเวลานี้')
                 followup=textval(d,'followup',False)
                 if followup and validdate(followup)<start.date().isoformat():raise ValueError('วันติดตามต้องไม่ก่อนวันนัด')
-                eid=c.execute('INSERT INTO appointments(patient_id,service,doctor,room,start,duration,followup) VALUES(?,?,?,?,?,?,?)',(p['id'],textval(d,'service'),doctor,room,start.isoformat(timespec='minutes'),duration,followup)).lastrowid
+                if editing:
+                    eid=editing['id']
+                    c.execute('UPDATE appointments SET service=?,doctor=?,room=?,start=?,duration=?,followup=? WHERE id=?',(textval(d,'service'),doctor,room,start.isoformat(timespec='minutes'),duration,followup,eid))
+                    detail='แก้ไขนัดหมาย: '+json.dumps(dict(editing),ensure_ascii=False)
+                else:eid=c.execute('INSERT INTO appointments(patient_id,service,doctor,room,start,duration,followup) VALUES(?,?,?,?,?,?,?)',(p['id'],textval(d,'service'),doctor,room,start.isoformat(timespec='minutes'),duration,followup)).lastrowid
         elif key=='inventory':
             if action=='opening':
                 product=one(c,'SELECT * FROM products WHERE id=?',(d.get('product_id'),))
@@ -272,13 +293,37 @@ class Handler(BaseHTTPRequestHandler):
             else:raise ValueError('ไม่พบคำสั่ง')
         elif key=='procedures':
             p=patient(c,d)
+            appointment=None
+            if d.get('appointment_id'):
+                appointment=one(c,'SELECT * FROM appointments WHERE id=?',(d['appointment_id'],))
+                if not appointment or appointment['patient_id']!=p['id']:raise ValueError('นัดหมายไม่ตรงกับผู้รับบริการ')
+                if appointment['status'] in ['ยกเลิก','เสร็จสิ้น']:raise ValueError('นัดหมายนี้ยกเลิกหรือบันทึกเสร็จสิ้นแล้ว')
+                if one(c,'SELECT procedure_id FROM procedure_details WHERE appointment_id=?',(appointment['id'],)):raise ValueError('นัดหมายนี้มีบันทึกหัตถการแล้ว')
             if not p['clinical_review']:raise ValueError('กรุณาทบทวนประวัติแพ้ยาและโรคประจำตัวก่อน')
             consent=one(c,"SELECT decision FROM consents WHERE patient_id=? AND purpose='การรักษา' ORDER BY id DESC LIMIT 1",(p['id'],))
             if not consent or consent['decision']!='ยินยอม':raise ValueError('ยังไม่มีความยินยอมการรักษาที่ใช้งานได้')
             if d.get('review_confirmed') is not True:raise ValueError('ต้องยืนยันว่าทบทวนประวัติและความเหมาะสมแล้ว')
             doctor=textval(d,'doctor');staff=textval(d,'staff',False);fee=number(d,'doctor_fee');commission=number(d,'commission')
+            base=number(d,'commission_base');rate=number(d,'commission_rate')
+            if rate>100:raise ValueError('เปอร์เซ็นต์คอมมิชชันต้องอยู่ระหว่าง 0–100')
+            if 'commission_rate' in d:
+                from decimal import Decimal, ROUND_HALF_UP
+                commission=float((Decimal(str(base))*Decimal(str(rate))/100).quantize(Decimal('0.01'),rounding=ROUND_HALF_UP))
             if commission and not staff:raise ValueError('ต้องระบุพนักงานผู้รับค่าคอมมิชชัน')
             eid=c.execute('INSERT INTO procedures(patient_id,service,doctor,nurse,note,created,doctor_fee,staff,commission,actor) VALUES(?,?,?,?,?,?,?,?,?,?)',(p['id'],textval(d,'service'),doctor,textval(d,'nurse',False),textval(d,'note'),now(),fee,staff,commission,u['id'])).lastrowid
+            c.execute('INSERT INTO procedure_details(procedure_id,appointment_id,commission_base,commission_rate) VALUES(?,?,?,?)',(eid,appointment['id'] if appointment else None,base,rate))
+            if appointment:c.execute("UPDATE appointments SET status='เสร็จสิ้น' WHERE id=?",(appointment['id'],))
+            face=d.get('face')
+            if face:
+                consent=one(c,"SELECT decision FROM consents WHERE patient_id=? AND purpose='ภาพก่อน–หลัง' ORDER BY id DESC LIMIT 1",(p['id'],))
+                if not consent or consent['decision']!='ยินยอม':raise ValueError('ต้องบันทึกความยินยอมสำหรับภาพก่อน–หลังก่อนบันทึกภาพใบหน้า')
+                for name in ['original','simulation']:
+                    value=textval(face,name,limit=1500000)
+                    if not value.startswith('data:image/jpeg;base64,'):raise ValueError('รองรับภาพใบหน้า JPEG เท่านั้น')
+                    try:image=base64.b64decode(value.split(',',1)[1],validate=True)
+                    except:raise ValueError('ภาพใบหน้าไม่ถูกต้อง')
+                    if not image.startswith(b'\xff\xd8\xff'):raise ValueError('ภาพใบหน้าไม่ถูกต้อง')
+                c.execute('INSERT INTO procedure_faces(procedure_id,original,simulation,notes) VALUES(?,?,?,?)',(eid,face['original'],face['simulation'],textval(face,'notes',False,10000)))
             items=d.get('items',[])
             if not isinstance(items,list) or len(items)>30:raise ValueError('รายการสินค้าไม่ถูกต้อง')
             for item in items:

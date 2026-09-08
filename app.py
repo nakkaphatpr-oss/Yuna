@@ -6,6 +6,21 @@ from server import Handler
 app = Flask(__name__, static_folder=None)
 app.config['MAX_CONTENT_LENGTH'] = 4_000_000
 
+# Additive, idempotent schema updates for existing cloud databases.
+import threading
+_schema_lock = threading.Lock()
+_schema_ready = False
+
+@app.before_request
+def ensure_schema():
+    global _schema_ready
+    if not _schema_ready:
+        with _schema_lock:
+            if not _schema_ready:
+                from database import initialize
+                initialize()
+                _schema_ready = True
+
 class WebHandler(Handler):
     def __init__(self):
         self.headers = request.headers

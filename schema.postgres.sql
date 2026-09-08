@@ -19,3 +19,5 @@ CREATE TABLE IF NOT EXISTS audit(id BIGSERIAL PRIMARY KEY,created TEXT,user_id I
 CREATE TABLE IF NOT EXISTS source_meta(key TEXT PRIMARY KEY,value TEXT);
 CREATE TABLE IF NOT EXISTS login_attempts(id BIGSERIAL PRIMARY KEY,key TEXT NOT NULL,created DOUBLE PRECISION NOT NULL);
 CREATE INDEX IF NOT EXISTS login_attempts_lookup ON login_attempts(key,created);
+CREATE TABLE IF NOT EXISTS procedure_faces(procedure_id BIGINT PRIMARY KEY REFERENCES procedures(id),original TEXT NOT NULL,simulation TEXT NOT NULL,notes TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS procedure_details(procedure_id BIGINT PRIMARY KEY REFERENCES procedures(id),appointment_id BIGINT UNIQUE REFERENCES appointments(id),commission_base DOUBLE PRECISION NOT NULL DEFAULT 0,commission_rate DOUBLE PRECISION NOT NULL DEFAULT 0);

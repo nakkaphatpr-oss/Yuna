@@ -18,3 +18,5 @@ CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,created TEXT,user_id INT
 CREATE TABLE IF NOT EXISTS source_meta(key TEXT PRIMARY KEY,value TEXT);
 CREATE TABLE IF NOT EXISTS login_attempts(id INTEGER PRIMARY KEY,key TEXT NOT NULL,created REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS login_attempts_lookup ON login_attempts(key,created);
+CREATE TABLE IF NOT EXISTS procedure_faces(procedure_id INTEGER PRIMARY KEY REFERENCES procedures(id),original TEXT NOT NULL,simulation TEXT NOT NULL,notes TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS procedure_details(procedure_id INTEGER PRIMARY KEY REFERENCES procedures(id),appointment_id INTEGER UNIQUE REFERENCES appointments(id),commission_base REAL NOT NULL DEFAULT 0,commission_rate REAL NOT NULL DEFAULT 0);
