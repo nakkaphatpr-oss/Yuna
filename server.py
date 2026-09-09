@@ -159,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
                 audit(c,u,'เปิดเวชระเบียน','patients',pid);return p
             term='%'+q.get('search',[''])[0]+'%'
             return rows(c,'SELECT id,hn,name,nickname,age,phone,member'+(',allergies,conditions,clinical_review' if u['role']!='Front' else '')+' FROM patients WHERE name LIKE ? OR nickname LIKE ? OR hn LIKE ? OR phone LIKE ? ORDER BY id DESC',(term,)*4)
-        if key=='appointments':return rows(c,'SELECT a.*,p.name,p.hn FROM appointments a JOIN patients p ON p.id=a.patient_id ORDER BY start')
+        if key=='appointments':return rows(c,'SELECT a.*,p.name,p.hn,p.nickname FROM appointments a JOIN patients p ON p.id=a.patient_id ORDER BY start')
         if key=='procedures':
             if path=='/api/procedures/photo':
                 r=one(c,'SELECT * FROM photos WHERE id=?',(q.get('id',[''])[0],))
