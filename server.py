@@ -165,7 +165,9 @@ class Handler(BaseHTTPRequestHandler):
                 r=one(c,'SELECT * FROM photos WHERE id=?',(q.get('id',[''])[0],))
                 if not r:raise ValueError('ไม่พบภาพ')
                 audit(c,u,'เปิดภาพเวชระเบียน','photos',r['id']);return (r['image'],r['mime'])
-            data=rows(c,'SELECT t.*,p.name,p.hn,p.nickname FROM procedures t JOIN patients p ON p.id=t.patient_id ORDER BY t.id DESC')
+            procedure_id=q.get('id',[''])[0]
+            data=rows(c,'SELECT t.*,p.name,p.hn,p.nickname FROM procedures t JOIN patients p ON p.id=t.patient_id'+(' WHERE t.id=?' if procedure_id else '')+' ORDER BY t.id DESC',(procedure_id,) if procedure_id else ())
+            if procedure_id:audit(c,u,'เปิดรายละเอียดหัตถการ','procedures',procedure_id)
             for record in data:
                 extra=one(c,'SELECT * FROM procedure_details WHERE procedure_id=?',(record['id'],))
                 record['appointment_id']=extra['appointment_id'] if extra else None
