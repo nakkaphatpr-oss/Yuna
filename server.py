@@ -165,7 +165,7 @@ class Handler(BaseHTTPRequestHandler):
                 r=one(c,'SELECT * FROM photos WHERE id=?',(q.get('id',[''])[0],))
                 if not r:raise ValueError('ไม่พบภาพ')
                 audit(c,u,'เปิดภาพเวชระเบียน','photos',r['id']);return (r['image'],r['mime'])
-            data=rows(c,'SELECT t.*,p.name,p.hn FROM procedures t JOIN patients p ON p.id=t.patient_id ORDER BY t.id DESC')
+            data=rows(c,'SELECT t.*,p.name,p.hn,p.nickname FROM procedures t JOIN patients p ON p.id=t.patient_id ORDER BY t.id DESC')
             for record in data:
                 extra=one(c,'SELECT * FROM procedure_details WHERE procedure_id=?',(record['id'],))
                 record['appointment_id']=extra['appointment_id'] if extra else None
@@ -294,6 +294,15 @@ class Handler(BaseHTTPRequestHandler):
                 reason=textval(d,'reason');eid=l['id'];c.execute('UPDATE lots SET qty=qty-? WHERE id=?',(qty,eid));c.execute('INSERT INTO movements(lot_id,qty,reason,created,actor) VALUES(?,?,?,?,?)',(eid,-qty,reason,now(),u['id']))
             else:raise ValueError('ไม่พบคำสั่ง')
         elif key=='procedures':
+            if action=='payment-edit':
+                allow(u,'finance',True)
+                receipt=one(c,"SELECT f.*,x.payment_method FROM procedure_payments x JOIN finance f ON f.id=x.finance_id WHERE x.procedure_id=? AND f.kind='receipt'",(d.get('id'),))
+                if not receipt:raise ValueError('ไม่พบใบเสร็จของหัตถการนี้')
+                if number(d,'previous_amount')!=receipt['amount']:raise ValueError('ยอดชำระถูกแก้ไขแล้ว กรุณาโหลดข้อมูลล่าสุดก่อน')
+                amount=number(d,'amount',0.01);reason=textval(d,'reason')
+                c.execute('UPDATE finance SET amount=? WHERE id=?',(amount,receipt['id']))
+                audit(c,u,'แก้ไขยอดชำระ','finance',receipt['id'],json.dumps({'ยอดเดิม':receipt['amount'],'ยอดใหม่':amount,'เหตุผล':reason},ensure_ascii=False))
+                return {'id':receipt['id']}
             if action=='payment':
                 allow(u,'finance',True)
                 procedure=one(c,'SELECT t.*,p.name FROM procedures t JOIN patients p ON p.id=t.patient_id WHERE t.id=?',(d.get('id'),))
