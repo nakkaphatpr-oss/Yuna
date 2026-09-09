@@ -170,6 +170,9 @@ class Handler(BaseHTTPRequestHandler):
                 extra=one(c,'SELECT * FROM procedure_details WHERE procedure_id=?',(record['id'],))
                 record['appointment_id']=extra['appointment_id'] if extra else None
                 record['has_face']=bool(one(c,'SELECT procedure_id FROM procedure_faces WHERE procedure_id=?',(record['id'],)))
+                pricing=one(c,'SELECT * FROM procedure_pricing WHERE procedure_id=?',(record['id'],))
+                if pricing:pricing['items']=json.loads(pricing['items'])
+                record['pricing']=pricing
                 if u['role'] in ACCESS['finance']:
                     record['receipt']=one(c,'SELECT f.*,x.payment_method FROM procedure_payments x JOIN finance f ON f.id=x.finance_id WHERE x.procedure_id=?',(record['id'],))
                 if u['role']=='Owner' and extra:
@@ -335,6 +338,23 @@ class Handler(BaseHTTPRequestHandler):
             if d.get('review_confirmed') is not True:raise ValueError('ต้องยืนยันว่าทบทวนประวัติและความเหมาะสมแล้ว')
             doctor=textval(d,'doctor');staff=textval(d,'staff',False);fee=number(d,'doctor_fee');commission=number(d,'commission')
             base=number(d,'commission_base');rate=number(d,'commission_rate')
+            pricing=None
+            if d.get('item_pricing') is True:
+                from decimal import Decimal, ROUND_HALF_UP
+                def cents(v):return Decimal(str(v)).quantize(Decimal('0.01'),rounding=ROUND_HALF_UP)
+                priced=[];subtotal=Decimal('0')
+                items=d.get('items',[])
+                if not isinstance(items,list) or len(items)>30:raise ValueError('รายการสินค้าไม่ถูกต้อง')
+                for item in items:
+                    product=one(c,'SELECT name,unit FROM products WHERE id=?',(item.get('product_id'),))
+                    if not product:raise ValueError('ไม่พบผลิตภัณฑ์')
+                    if 'unit_price' not in item or item['unit_price']=='':raise ValueError('กรุณาระบุราคาขายทุกรายการ')
+                    qty=number(item,'qty',0.000001);price=cents(number(item,'unit_price'));total=cents(Decimal(str(qty))*price);subtotal+=total
+                    priced.append({'name':product['name'],'unit':product['unit'],'qty':qty,'unit_price':float(price),'total':float(total)})
+                service_fee=cents(number(d,'service_fee'));discount=cents(number(d,'discount'))
+                net=subtotal+service_fee-discount
+                if net<0 or net>Decimal('10000000000'):raise ValueError('ส่วนลดหรือยอดสุทธิไม่ถูกต้อง')
+                base=float(net);pricing=(json.dumps(priced,ensure_ascii=False),float(subtotal),float(service_fee),float(discount),base)
             if rate>100:raise ValueError('เปอร์เซ็นต์คอมมิชชันต้องอยู่ระหว่าง 0–100')
             if 'commission_rate' in d:
                 from decimal import Decimal, ROUND_HALF_UP
@@ -342,6 +362,7 @@ class Handler(BaseHTTPRequestHandler):
             if commission and not staff:raise ValueError('ต้องระบุพนักงานผู้รับค่าคอมมิชชัน')
             eid=c.execute('INSERT INTO procedures(patient_id,service,doctor,nurse,note,created,doctor_fee,staff,commission,actor) VALUES(?,?,?,?,?,?,?,?,?,?)',(p['id'],textval(d,'service'),doctor,textval(d,'nurse',False),textval(d,'note'),now(),fee,staff,commission,u['id'])).lastrowid
             c.execute('INSERT INTO procedure_details(procedure_id,appointment_id,commission_base,commission_rate) VALUES(?,?,?,?)',(eid,appointment['id'] if appointment else None,base,rate))
+            if pricing:c.execute('INSERT INTO procedure_pricing(procedure_id,items,subtotal,service_fee,discount,net) VALUES(?,?,?,?,?,?)',(eid,)+pricing)
             if appointment:c.execute("UPDATE appointments SET status='เสร็จสิ้น' WHERE id=?",(appointment['id'],))
             face=d.get('face')
             if face:

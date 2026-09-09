@@ -22,3 +22,4 @@ CREATE INDEX IF NOT EXISTS login_attempts_lookup ON login_attempts(key,created);
 CREATE TABLE IF NOT EXISTS procedure_faces(procedure_id BIGINT PRIMARY KEY REFERENCES procedures(id),original TEXT NOT NULL,simulation TEXT NOT NULL,notes TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS procedure_details(procedure_id BIGINT PRIMARY KEY REFERENCES procedures(id),appointment_id BIGINT UNIQUE REFERENCES appointments(id),commission_base DOUBLE PRECISION NOT NULL DEFAULT 0,commission_rate DOUBLE PRECISION NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS procedure_payments(procedure_id BIGINT PRIMARY KEY REFERENCES procedures(id),finance_id BIGINT NOT NULL UNIQUE REFERENCES finance(id),payment_method TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS procedure_pricing(procedure_id BIGINT PRIMARY KEY REFERENCES procedures(id),items TEXT NOT NULL,subtotal DOUBLE PRECISION NOT NULL,service_fee DOUBLE PRECISION NOT NULL,discount DOUBLE PRECISION NOT NULL,net DOUBLE PRECISION NOT NULL);
