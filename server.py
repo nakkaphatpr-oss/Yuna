@@ -23,6 +23,10 @@ def today():return now()[:10]
 def rows(c,q,args=()):return [dict(r) for r in c.execute(q,args)]
 def one(c,q,args=()):
     r=c.execute(q,args).fetchone();return dict(r) if r else None
+def procedure_revision(c,pid):
+    state=[one(c,'SELECT * FROM procedures WHERE id=?',(pid,)),one(c,'SELECT * FROM procedure_pricing WHERE procedure_id=?',(pid,)),one(c,'SELECT * FROM procedure_details WHERE procedure_id=?',(pid,)),rows(c,'SELECT * FROM procedure_lots WHERE procedure_id=? ORDER BY lot_id',(pid,))]
+    return hashlib.sha256(json.dumps(state,sort_keys=True,default=str).encode()).hexdigest()
+
 def hashpw(p,salt=None):
     salt=salt or secrets.token_hex(16)
     return salt+':'+hashlib.pbkdf2_hmac('sha256',p.encode(),salt.encode(),600000).hex()
@@ -179,7 +183,8 @@ class Handler(BaseHTTPRequestHandler):
                     record['receipt']=one(c,'SELECT f.*,x.payment_method FROM procedure_payments x JOIN finance f ON f.id=x.finance_id WHERE x.procedure_id=?',(record['id'],))
                 if u['role']=='Owner' and extra:
                     record['commission_base']=extra['commission_base'];record['commission_rate']=extra['commission_rate']
-                record['lots']=rows(c,'SELECT l.lot,l.expiry,x.qty,p.name FROM procedure_lots x JOIN lots l ON l.id=x.lot_id JOIN products p ON p.id=l.product_id WHERE x.procedure_id=?',(record['id'],))
+                record['revision']=procedure_revision(c,record['id'])
+                record['lots']=rows(c,'SELECT l.product_id,l.lot,l.expiry,x.qty,p.name FROM procedure_lots x JOIN lots l ON l.id=x.lot_id JOIN products p ON p.id=l.product_id WHERE x.procedure_id=?',(record['id'],))
                 if u['role']!='Owner':
                     record.pop('doctor_fee',None);record.pop('commission',None)
             return data
@@ -299,6 +304,62 @@ class Handler(BaseHTTPRequestHandler):
                 reason=textval(d,'reason');eid=l['id'];c.execute('UPDATE lots SET qty=qty-? WHERE id=?',(qty,eid));c.execute('INSERT INTO movements(lot_id,qty,reason,created,actor) VALUES(?,?,?,?,?)',(eid,-qty,reason,now(),u['id']))
             else:raise ValueError('ไม่พบคำสั่ง')
         elif key=='procedures':
+            if action=='edit-items':
+                if u['role']!='Owner':raise PermissionError('เฉพาะ Owner สามารถแก้ไขรายการที่บันทึกแล้ว')
+                eid=d.get('id');old=one(c,'SELECT * FROM procedures WHERE id=?',(eid,))
+                if not old:raise ValueError('ไม่พบหัตถการ')
+                if d.get('revision')!=procedure_revision(c,eid):raise ValueError('รายการถูกแก้ไขแล้ว กรุณาปิดและเปิดข้อมูลล่าสุดก่อน')
+                reason=textval(d,'reason')
+                if d.get('correction_confirmed') is not True:raise ValueError('กรุณายืนยันการแก้ไขรายการและปรับยอดสต็อก')
+                from decimal import Decimal, ROUND_HALF_UP
+                def cents(v):return Decimal(str(v)).quantize(Decimal('0.01'),rounding=ROUND_HALF_UP)
+                items=d.get('items');priced=[];desired={};subtotal=Decimal('0')
+                if not isinstance(items,list) or len(items)>30:raise ValueError('รายการสินค้าไม่ถูกต้อง')
+                for item in items:
+                    product=one(c,'SELECT id,name,unit FROM products WHERE id=?',(item.get('product_id'),))
+                    if not product:raise ValueError('ไม่พบผลิตภัณฑ์')
+                    if item.get('unit_price') in [None,'']:raise ValueError('กรุณาระบุราคาขายทุกรายการ')
+                    qty=number(item,'qty',0.000001);price=cents(number(item,'unit_price'));total=cents(Decimal(str(qty))*price);subtotal+=total
+                    desired[product['id']]=desired.get(product['id'],0)+qty
+                    priced.append({'product_id':product['id'],'name':product['name'],'unit':product['unit'],'qty':qty,'unit_price':float(price),'total':float(total)})
+                fee=cents(number(d,'service_fee'));discount=cents(number(d,'discount'));net=subtotal+fee-discount
+                if net<0 or net>Decimal('10000000000'):raise ValueError('ส่วนลดหรือยอดสุทธิไม่ถูกต้อง')
+                rate=number(d,'commission_rate');staff=textval(d,'staff',False)
+                if rate>100:raise ValueError('เปอร์เซ็นต์คอมมิชชันต้องอยู่ระหว่าง 0–100')
+                commission=float(cents(net*Decimal(str(rate))/100))
+                if commission and not staff:raise ValueError('ต้องระบุพนักงานผู้รับค่าคอมมิชชัน')
+                service=textval(d,'service');note=textval(d,'note');doctor=textval(d,'doctor');nurse=textval(d,'nurse',False);doctor_fee=number(d,'doctor_fee')
+                old_pricing=one(c,'SELECT * FROM procedure_pricing WHERE procedure_id=?',(eid,))
+                allocations=rows(c,'SELECT x.lot_id,x.qty,l.product_id,l.expiry FROM procedure_lots x JOIN lots l ON l.id=x.lot_id WHERE x.procedure_id=? ORDER BY l.expiry,l.id',(eid,))
+                # Keep previously used lots (including expired ones); only extra quantities use FEFO.
+                remaining=dict(desired);kept={}
+                for allocation in allocations:
+                    pid=allocation['product_id'];keep=min(allocation['qty'],remaining.get(pid,0));remaining[pid]=max(0,remaining.get(pid,0)-keep)
+                    if keep:kept[allocation['lot_id']]=kept.get(allocation['lot_id'],0)+keep
+                    returned=allocation['qty']-keep
+                    if returned>0:
+                        c.execute('UPDATE lots SET qty=qty+? WHERE id=?',(returned,allocation['lot_id']))
+                        c.execute('INSERT INTO movements(lot_id,qty,reason,created,actor) VALUES(?,?,?,?,?)',(allocation['lot_id'],returned,'แก้ไขหัตถการ #'+str(eid)+' · '+reason,now(),u['id']))
+                for pid,need in remaining.items():
+                    if need<=1e-9:continue
+                    lots=rows(c,'SELECT * FROM lots WHERE product_id=? AND expiry>=? AND qty>0 ORDER BY expiry,id',(pid,today()))
+                    if sum(l['qty'] for l in lots)+1e-9<need:raise ValueError('สินค้า Lot ที่ใช้งานได้ไม่เพียงพอ ไม่มีการบันทึกการแก้ไข')
+                    for lot in lots:
+                        take=min(need,lot['qty'])
+                        if take<=0:break
+                        c.execute('UPDATE lots SET qty=qty-? WHERE id=?',(take,lot['id']))
+                        c.execute('INSERT INTO movements(lot_id,qty,reason,created,actor) VALUES(?,?,?,?,?)',(lot['id'],-take,'แก้ไขหัตถการ #'+str(eid)+' · '+reason,now(),u['id']))
+                        kept[lot['id']]=kept.get(lot['id'],0)+take;need-=take
+                c.execute('DELETE FROM procedure_lots WHERE procedure_id=?',(eid,))
+                for lot_id,qty in kept.items():c.execute('INSERT INTO procedure_lots VALUES(?,?,?)',(eid,lot_id,qty))
+                c.execute('UPDATE procedures SET service=?,doctor=?,nurse=?,note=?,doctor_fee=?,staff=?,commission=? WHERE id=?',(service,doctor,nurse,note,doctor_fee,staff,commission,eid))
+                extra=one(c,'SELECT procedure_id FROM procedure_details WHERE procedure_id=?',(eid,))
+                if extra:c.execute('UPDATE procedure_details SET commission_base=?,commission_rate=? WHERE procedure_id=?',(float(net),rate,eid))
+                else:c.execute('INSERT INTO procedure_details(procedure_id,commission_base,commission_rate) VALUES(?,?,?)',(eid,float(net),rate))
+                c.execute('DELETE FROM procedure_pricing WHERE procedure_id=?',(eid,))
+                c.execute('INSERT INTO procedure_pricing(procedure_id,items,subtotal,service_fee,discount,net) VALUES(?,?,?,?,?,?)',(eid,json.dumps(priced,ensure_ascii=False),float(subtotal),float(fee),float(discount),float(net)))
+                audit(c,u,'แก้ไขรายการหัตถการ','procedures',eid,json.dumps({'reason':reason,'before':old,'before_pricing':old_pricing,'before_lots':allocations,'after':d},ensure_ascii=False))
+                return {'id':eid}
             if action=='payment-edit':
                 allow(u,'finance',True)
                 receipt=one(c,"SELECT f.*,x.payment_method FROM procedure_payments x JOIN finance f ON f.id=x.finance_id WHERE x.procedure_id=? AND f.kind='receipt'",(d.get('id'),))
