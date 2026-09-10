@@ -82,10 +82,10 @@ class Handler(BaseHTTPRequestHandler):
             path=urlparse(self.path).path; query=parse_qs(urlparse(self.path).query)
             if not path.startswith('/api/'):
                 if post:return self.reply({'error':'ไม่พบหน้า'},404)
-                public={'/':'index.html','/index.html':'index.html','/styles.css':'styles.css','/app.js':'app.js','/favicon.svg':'favicon.svg','/yuna-logo.png':'yuna-logo.png'}
+                public={'/':'index.html','/index.html':'index.html','/modern.css':'modern.css','/yuna-thai.ttf':'yuna-thai.ttf','/font-license.txt':'font-license.txt','/styles.css':'styles.css','/app.js':'app.js','/favicon.svg':'favicon.svg','/yuna-logo.png':'yuna-logo.png'}
                 name=public.get(path)
                 if not name:return self.reply({'error':'ไม่พบหน้า'},404)
-                mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png'}
+                mime={'.ttf':'font/ttf','.txt':'text/plain; charset=utf-8','.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png'}
                 return self.reply((BASE/'public'/name).read_bytes(),mime=mime[pathlib.Path(name).suffix])
             d={}
             if post:
@@ -442,3 +442,4 @@ if __name__=='__main__':
         import webbrowser
         threading.Timer(.5,lambda:webbrowser.open(f'http://127.0.0.1:{PORT}')).start()
     httpd.serve_forever()
+
