@@ -141,6 +141,7 @@ class Handler(BaseHTTPRequestHandler):
             pid=q.get('id',[''])[0]
             face=one(c,'SELECT * FROM procedure_faces WHERE procedure_id=?',(pid,))
             audit(c,u,'เปิด Face Detail / Simulation','procedures',pid)
+            if face and face['original']=='diagram:v1':return {'kind':'diagram','points':json.loads(face['simulation']),'notes':face['notes']}
             return face or {}
         if key=='dashboard':
             result={'patients':c.execute('SELECT COUNT(*) FROM patients').fetchone()[0] if u['role'] in ACCESS['patients'] else None,'appointments':rows(c,'SELECT a.*,p.name FROM appointments a JOIN patients p ON p.id=a.patient_id WHERE substr(start,1,10)=? ORDER BY start',(today(),)) if u['role'] in ACCESS['appointments'] else [],'low':c.execute('SELECT COUNT(*) FROM products p WHERE opening+COALESCE((SELECT SUM(qty) FROM lots WHERE product_id=p.id),0)<=min_stock').fetchone()[0] if u['role'] in ACCESS['inventory'] else None}
@@ -428,7 +429,18 @@ class Handler(BaseHTTPRequestHandler):
             if pricing:c.execute('INSERT INTO procedure_pricing(procedure_id,items,subtotal,service_fee,discount,net) VALUES(?,?,?,?,?,?)',(eid,)+pricing)
             if appointment:c.execute("UPDATE appointments SET status='เสร็จสิ้น' WHERE id=?",(appointment['id'],))
             face=d.get('face')
-            if face:
+            if face and face.get('kind')=='diagram':
+                if 'original' in face or 'simulation' in face:raise ValueError('ภาพแผนผังต้องไม่มีไฟล์ภาพจริง')
+                points=face.get('points',[])
+                if not isinstance(points,list) or len(points)>30:raise ValueError('ตำแหน่งบนแผนผังไม่ถูกต้อง')
+                clean=[]
+                for point in points:
+                    if not isinstance(point,dict):raise ValueError('ตำแหน่งไม่ถูกต้อง')
+                    x=number(point,'x');y=number(point,'y')
+                    if x>640 or y>760:raise ValueError('ตำแหน่งอยู่นอกภาพ')
+                    clean.append({'x':x,'y':y})
+                c.execute('INSERT INTO procedure_faces(procedure_id,original,simulation,notes) VALUES(?,?,?,?)',(eid,'diagram:v1',json.dumps(clean),textval(face,'notes',False,10000)))
+            elif face:
                 consent=one(c,"SELECT decision FROM consents WHERE patient_id=? AND purpose='ภาพก่อน–หลัง' ORDER BY id DESC LIMIT 1",(p['id'],))
                 if not consent or consent['decision']!='ยินยอม':raise ValueError('ต้องบันทึกความยินยอมสำหรับภาพก่อน–หลังก่อนบันทึกภาพใบหน้า')
                 for name in ['original','simulation']:
