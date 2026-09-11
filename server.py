@@ -477,7 +477,20 @@ class Handler(BaseHTTPRequestHandler):
                 amount=number(d,'amount',0.01)
                 eid=c.execute('INSERT INTO finance(kind,patient_id,customer,description,amount,date,source) VALUES(?,?,?,?,?,?,?)',(kind,pid,customer,textval(d,'description'),amount,validdate(textval(d,'date')),'บันทึกใน Yuna Clinic')).lastrowid
         elif key=='users':
-            if action=='toggle':
+            if action=='edit':
+                target=one(c,'SELECT id,name,username,role,active FROM users WHERE id=?',(d.get('id'),))
+                if not target:raise ValueError('ไม่พบบัญชี')
+                if d.get('previous')!=target:raise ValueError('ข้อมูลผู้ใช้เปลี่ยนแล้ว กรุณาเปิดรายการใหม่')
+                name=textval(d,'name');username=textval(d,'username').lower();role=textval(d,'role')
+                if role not in ROLES:raise ValueError('บทบาทไม่ถูกต้อง')
+                if any(ch.isspace() for ch in username):raise ValueError('ชื่อเข้าสู่ระบบต้องไม่มีช่องว่าง')
+                if one(c,'SELECT id FROM users WHERE lower(username)=? AND id<>?',(username,target['id'])):raise ValueError('ชื่อเข้าสู่ระบบนี้ถูกใช้งานแล้ว')
+                if target['id']==u['id'] and role!=target['role']:raise ValueError('ไม่สามารถเปลี่ยนบทบาทของตนเอง ให้ Owner อีกบัญชีดำเนินการ')
+                if target['active'] and target['role']=='Owner' and role!='Owner' and c.execute("SELECT COUNT(*) FROM users WHERE role='Owner' AND active=1").fetchone()[0]<=1:raise ValueError('ระบบต้องมี Owner ที่ใช้งานอยู่อย่างน้อยหนึ่งบัญชี')
+                eid=target['id'];c.execute('UPDATE users SET name=?,username=?,role=? WHERE id=?',(name,username,role,eid))
+                if role!=target['role'] or username!=target['username']:c.execute('DELETE FROM sessions WHERE user_id=?',(eid,))
+                detail=json.dumps({'before':target,'after':{'name':name,'username':username,'role':role}},ensure_ascii=False)
+            elif action=='toggle':
                 target=one(c,'SELECT * FROM users WHERE id=?',(d.get('id'),))
                 if not target or target['id']==u['id']:raise ValueError('ไม่สามารถปิดบัญชีของตนเอง')
                 eid=target['id'];c.execute('UPDATE users SET active=1-active WHERE id=?',(eid,));c.execute('DELETE FROM sessions WHERE user_id=?',(eid,))
