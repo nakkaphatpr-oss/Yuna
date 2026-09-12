@@ -116,13 +116,47 @@ async function patientDetail(id){const p=await api('patients?id='+id);currentPat
  if(me.role!=='Front'){body+=`<div class="detailsection"><h3>ประวัติสุขภาพ</h3>${btn('ทบทวน / แก้ไข','clinical-review',`data-id="${p.id}"`)}</div>${p.clinical_review?pill('ทบทวนแล้ว','green'):`<div class="notice">${icon('bell')}ยังไม่ผ่านการทบทวนประวัติก่อนทำหัตถการ</div>`}<div class="detailgrid" style="margin-top:14px">${[['แพ้ยา',p.allergies],['โรคประจำตัว',p.conditions],['ยาที่รับประทาน',p.medicines],['ผู้ติดต่อฉุกเฉิน',p.emergency],['ที่อยู่',p.address]].map(([k,v])=>`<div class="detailitem"><small>${k}</small><p>${esc(v)||'ยังไม่ระบุ'}</p></div>`).join('')}</div><div class="detailsection"><h3>Consent</h3>${btn(icon('plus')+' บันทึก','consent',`data-id="${p.id}"`)}</div>${table(['วัตถุประสงค์','สถานะ','ผู้ลงนาม','เวอร์ชัน'],p.consents.map(c=>[esc(c.purpose),status(c.decision),esc(c.signed_by),esc(c.version)]))}<div class="detailsection"><h3>ภาพก่อน–หลัง</h3>${btn(icon('camera')+' เพิ่มภาพ','photo',`data-id="${p.id}"`)}</div><div class="photo-grid">${p.photos.map(ph=>`<figure><img src="/api/procedures/photo?id=${ph.id}" alt="${esc(ph.phase)}" loading="lazy"><figcaption>${esc(ph.phase)} · ${date(ph.created)}<br>${esc(ph.note)}</figcaption></figure>`).join('')}</div>${p.photos.length?'':empty('ยังไม่มีภาพ','บันทึกความยินยอมก่อนอัปโหลดภาพ')}<div class="detailsection"><h3>ประวัติหัตถการ</h3></div>${table(['วันที่','หัตถการ','แพทย์',''],p.procedures.map(t=>[date(t.created),esc(t.service),esc(t.doctor),btn('ดูรายละเอียด','patient-procedure',`data-id="${t.id}"`)]))}`;}
  modal(esc(p.name),body);
 }
+function mountPatientCombobox(patients){
+ const picker=$('#f-patient_id'),host=picker.parentElement;
+ picker.hidden=true;picker.required=false;
+ const label=p=>p.name+(p.nickname?' ('+p.nickname+')':'')+' · HN '+p.hn;
+ host.classList.add('patient-combobox');
+ $('label',host).htmlFor='patient-combo-input';
+ host.insertAdjacentHTML('beforeend',`<div class="patient-combo-control"><input id="patient-combo-input" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="patient-combo-list" placeholder="ค้นชื่อ ชื่อเล่น เบอร์โทร หรือ HN" autocomplete="off" required><button type="button" class="patient-combo-toggle" aria-label="แสดงรายชื่อผู้รับบริการ" tabindex="-1">⌄</button></div><div id="patient-combo-list" role="listbox" aria-label="ผู้รับบริการ" hidden></div><small id="patient-combo-status" role="status" aria-live="polite"></small>`);
+ const input=$('#patient-combo-input'),list=$('#patient-combo-list'),status=$('#patient-combo-status');
+ let found=[],active=-1;
+ const close=()=>{list.hidden=true;input.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant');active=-1;};
+ const highlight=()=>{[...list.querySelectorAll('[role=option]')].forEach((el,i)=>{el.setAttribute('aria-selected',String(i===active));if(i===active){input.setAttribute('aria-activedescendant',el.id);el.scrollIntoView({block:'nearest'});}});};
+ const choose=i=>{const p=found[i];if(!p)return;picker.value=String(p.id);input.value=label(p);input.setCustomValidity('');status.textContent='เลือกแล้ว: '+label(p);close();picker.dispatchEvent(new Event('change'));};
+ const open=()=>{
+  const term=picker.value?'':input.value.trim().toLocaleLowerCase();
+  const digits=term.replace(/[^0-9]/g,'');
+  found=patients.filter(p=>[p.name,p.nickname,p.phone,p.hn].some(v=>String(v??'').toLocaleLowerCase().includes(term))||(digits.length>=3&&String(p.phone||'').replace(/[^0-9]/g,'').includes(digits)));
+  active=-1;input.removeAttribute('aria-activedescendant');
+  list.innerHTML=found.length?found.map((p,i)=>`<div id="patient-choice-${i}" role="option" aria-selected="false" data-index="${i}"><strong>${esc(p.name)}${p.nickname?' · '+esc(p.nickname):''}</strong><small>HN ${esc(p.hn)}${p.phone?' · '+esc(p.phone):''}</small></div>`).join(''):'<p class="patient-combo-empty">ไม่พบผู้รับบริการ ลองเปลี่ยนคำค้นหา</p>';
+  list.hidden=false;input.setAttribute('aria-expanded','true');status.textContent='พบ '+found.length+' ราย';
+ };
+ input.onfocus=open;input.onclick=()=>{if(list.hidden)open();};
+ input.oninput=()=>{const hadValue=picker.value;picker.value='';input.setCustomValidity('กรุณาเลือกผู้รับบริการจากรายการ');if(hadValue)picker.dispatchEvent(new Event('change'));open();};
+ input.onblur=close;
+ list.onmousedown=e=>e.preventDefault();
+ list.onclick=e=>{const option=e.target.closest('[role=option]');if(option)choose(Number(option.dataset.index));};
+ $('.patient-combo-toggle',host).onmousedown=e=>e.preventDefault();
+ $('.patient-combo-toggle',host).onclick=()=>{if(!list.hidden)close();else{input.focus();open();}};
+ input.onkeydown=e=>{
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();if(list.hidden)open();if(found.length){active=active<0?(e.key==='ArrowDown'?0:found.length-1):(active+(e.key==='ArrowDown'?1:-1)+found.length)%found.length;highlight();}}
+  else if(e.key==='Enter'&&!list.hidden){e.preventDefault();if(active>=0)choose(active);}
+  else if(e.key==='Escape'&&!list.hidden){e.preventDefault();e.stopPropagation();close();}
+  else if(e.key==='Tab')close();
+ };
+ const selected=patients.find(p=>String(p.id)===picker.value);if(selected)input.value=label(selected);
+}
 async function newAppointment(){
  const patients=await api('patients');
  const label=p=>p.hn+' · '+p.name+(p.nickname?' · ชื่อเล่น: '+p.nickname:'');
  const options=ps=>[['','เลือกผู้รับบริการ'],...ps.map(p=>[p.id,label(p)])];
- const search='<div class="field full"><label for="appointment-patient-search">ค้นหาผู้รับบริการ</label><input id="appointment-patient-search" type="search" placeholder="พิมพ์ชื่อ ชื่อเล่น เบอร์โทร หรือ HN" autocomplete="off" aria-controls="f-patient_id" aria-describedby="appointment-patient-results"><small id="appointment-patient-results" role="status" aria-live="polite">พิมพ์เพื่อกรองรายการ แล้วเลือกผู้รับบริการด้านล่าง</small></div>';
- form('สร้างนัดหมาย',search+select('patient_id','ผู้รับบริการ',options(patients))+field('service','บริการ / หัตถการ')+field('doctor','แพทย์')+select('room','ห้องหัตถการ',['ห้อง 1','ห้อง 2','ห้อง 3','ห้องปรึกษา'])+field('start','วันและเวลา','datetime-local',localDate()+'T10:00')+field('duration','ระยะเวลา (นาที)','number',30,{min:1,max:480})+field('followup','วันที่ติดตามหลังทำ','date','',{optional:true}),d=>api('appointments',d));
- $('#appointment-patient-search').oninput=e=>{const term=e.target.value.trim().toLocaleLowerCase();const found=patients.filter(p=>[p.hn,p.name,p.nickname,p.phone].some(v=>String(v??'').toLocaleLowerCase().includes(term)));const picker=$('#f-patient_id'),previous=picker.value;picker.innerHTML=options(found).map(([v,l])=>`<option value="${esc(v)}">${esc(l)}</option>`).join('');picker.value=found.some(p=>String(p.id)===previous)?previous:'';$('#appointment-patient-results').textContent=found.length?'พบ '+found.length+' ราย · เลือกผู้รับบริการด้านล่าง':'ไม่พบผู้รับบริการ ลองเปลี่ยนคำค้นหา';};
+ form('สร้างนัดหมาย',select('patient_id','ผู้รับบริการ',options(patients))+field('service','บริการ / หัตถการ')+field('doctor','แพทย์')+select('room','ห้องหัตถการ',['ห้อง 1','ห้อง 2','ห้อง 3','ห้องปรึกษา'])+field('start','วันและเวลา','datetime-local',localDate()+'T10:00')+field('duration','ระยะเวลา (นาที)','number',30,{min:1,max:480})+field('followup','วันที่ติดตามหลังทำ','date','',{optional:true}),d=>api('appointments',d));
+ mountPatientCombobox(patients);
 }
 async function newProcedure(appointment=null){let faceEditor=null;const patients=await api('patients'),stock=await api('inventory');let ps=null;
  const patientLabel=p=>p.hn+' · '+p.name+(p.nickname?' · ชื่อเล่น: '+p.nickname:'');

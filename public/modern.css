@@ -15,3 +15,16 @@ h1,h2,h3{font-family:inherit;color:#25332e;letter-spacing:-.3px}h1,.pagehead h1{
 @media(max-width:760px){.sidebar{width:256px}.workspace{margin-left:0}.content{padding:24px 18px}.topbar{padding:0 18px;height:68px}.pagehead{padding:0 0 22px;gap:18px}.pagehead h1{font-size:24px}.pagehead .actions{width:100%}.stats{gap:12px}.stat{padding:18px;min-height:145px}.stat strong{font-size:27px}.stat-top{font-size:13px}.card-head{padding:20px}.card-body{padding:0 20px 20px}td,th{padding:15px 16px}.modal-head{padding:18px 20px}.modal-head h2{font-size:19px}.modal-body{padding:22px 18px}.formgrid{gap:20px}#modal{width:calc(100vw - 20px);max-height:94svh;border-radius:16px}.auth-left .clinic-logo{width:165px}.auth-left h1 em{font-size:24px}.auth-left{padding:26px}.auth-right{padding:26px}.authform{padding:12px 0}.authform h2{font-size:25px}.face-body{padding:16px}}
 
 .face-upload[hidden]{display:none}
+.patient-combobox { position:relative; min-width:0; }
+.patient-combobox select[hidden] { display:none; }
+.patient-combo-control { position:relative; }
+.patient-combo-control input { padding-right:44px; width:100%; }
+.patient-combo-control .patient-combo-toggle { position:absolute; right:4px; top:4px; bottom:4px; border:0; background:transparent; padding:0 12px; min-height:0; box-shadow:none; }
+#patient-combo-list { position:absolute; top:78px; left:0; right:0; max-height:260px; overflow:auto; z-index:20; background:#fff; border:1px solid #d9e2df; border-radius:12px; box-shadow:0 12px 30px #183b3326; padding:6px; }
+#patient-combo-list[hidden] { display:none; }
+#patient-combo-list [role=option] { padding:10px 12px; border-radius:8px; cursor:pointer; }
+#patient-combo-list [role=option]:hover,#patient-combo-list [aria-selected=true] { background:#f1f5f3; }
+#patient-combo-list strong { display:block; font-size:14px; font-weight:500; }
+#patient-combo-list small { display:block; margin-top:4px; }
+.patient-combo-empty { padding:12px; font-size:14px; }
+#patient-combo-status:empty { display:none; }
