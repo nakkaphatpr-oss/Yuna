@@ -45,3 +45,6 @@ h1,h2,h3{font-family:inherit;color:#25332e;letter-spacing:-.3px}h1,.pagehead h1{
  #print .tablewrap { overflow:visible!important; }
  #print tr { break-inside:avoid; }
 }
+.loading { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100svh; padding:32px 20px; font-family:inherit; letter-spacing:normal; }
+.loading .clinic-logo { width:min(200px,55vw); background:transparent; }
+.loading p { margin-top:24px; font-family:inherit; font-size:14px; letter-spacing:normal; color:var(--muted); }

@@ -11,7 +11,7 @@ const NAV=[['dashboard','ภาพรวม','grid','OVERVIEW'],['patients','ผ
 let me=null,view='dashboard',cache={},tab='',page=1,query='',filter='',month=localDate().slice(0,7),currentPatient=null,formHandler=null,toastTimer,routeVersion=0;
 let lockTimer,lockDeadline=0;
 function armLock(){if(!me)return;lockDeadline=Math.min(Date.now()+1800000,(me.expires_at||Date.now()/1000+28800)*1000);clearTimeout(lockTimer);lockTimer=setTimeout(lockWorkspace,Math.max(0,lockDeadline-Date.now()))}
-async function lockWorkspace(){if(!me)return;me=null;cache={};currentPatient=null;formHandler=null;routeVersion++;$('#modal').close();$('#modal').innerHTML='';$('#print').innerHTML='';$('#app').innerHTML='<div class="loading">YUNA<span>CLINIC</span></div>';try{await auth();toast('เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง')}catch(e){toast(e.message)}}
+async function lockWorkspace(){if(!me)return;me=null;cache={};currentPatient=null;formHandler=null;routeVersion++;$('#modal').close();$('#modal').innerHTML='';$('#print').innerHTML='';$('#app').innerHTML='<div class="loading" role="status" aria-live="polite"><div class="clinic-logo"><img src="/yuna-logo.png" alt="Yuna Clinic" width="1825" height="2199" fetchpriority="high"></div><p>กำลังเตรียมพื้นที่ทำงาน…</p></div>';try{await auth();toast('เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง')}catch(e){toast(e.message)}}
 async function api(path,data){
  const res=await fetch('/api/'+path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json','X-CSRF-Token':me?.csrf||''},body:data===undefined?undefined:JSON.stringify(data)});
  const result=await res.json();
