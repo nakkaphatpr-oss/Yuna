@@ -63,3 +63,13 @@ h1,h2,h3{font-family:inherit;color:#25332e;letter-spacing:-.3px}h1,.pagehead h1{
  #print .consent-document h2 { font-size:15pt; }
  #print .consent-signatures { grid-template-columns:1fr 1fr; }
 }
+.trend-summary { display:flex; justify-content:space-between; align-items:center; gap:18px; padding:8px 0 24px; }
+.trend-summary strong { display:block; font-size:30px; font-weight:600; color:#286355; font-variant-numeric:tabular-nums; margin-top:6px; }
+.trend-summary>span,.trend-note { color:var(--muted); font-size:12px; }
+.trend-scroll { overflow-x:auto; padding:4px 0 12px; scrollbar-width:thin; scrollbar-color:#b5cfc6 transparent; }
+.revenue-chart { display:block; width:100%; height:260px; }
+.revenue-chart text { font-family:inherit; font-size:11px; fill:#768b84; }
+.trend-point { cursor:pointer; outline:none; }
+.trend-point.selected .trend-dot,.trend-point:hover .trend-dot,.trend-point:focus .trend-dot { fill:#387d70; stroke:#bcd9ce; stroke-width:6; }
+#revenue-range { width:auto; min-width:120px; padding:9px 12px; }
+@media(max-width:600px) { .trend-summary { align-items:flex-start; flex-direction:column; gap:8px; } .trend-summary strong { font-size:27px; } }
