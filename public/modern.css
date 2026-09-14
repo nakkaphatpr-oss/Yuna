@@ -73,3 +73,12 @@ h1,h2,h3{font-family:inherit;color:#25332e;letter-spacing:-.3px}h1,.pagehead h1{
 .trend-point.selected .trend-dot,.trend-point:hover .trend-dot,.trend-point:focus .trend-dot { fill:#387d70; stroke:#bcd9ce; stroke-width:6; }
 #revenue-range { width:auto; min-width:120px; padding:9px 12px; }
 @media(max-width:600px) { .trend-summary { align-items:flex-start; flex-direction:column; gap:8px; } .trend-summary strong { font-size:27px; } }
+.profit-months,.profit-day { margin-top:22px; }
+.profit-months summary { padding:20px; cursor:pointer; font-weight:600; }
+.profit-month-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px; padding:0 20px 20px; }
+.profit-month-list button { justify-content:space-between; text-align:left; padding:16px; }
+.profit-month-list small { display:block; margin-top:5px; }
+.profit-day .card-head strong,.profit-gain { color:#286355; font-variant-numeric:tabular-nums; }
+.profit-loss { color:#b64343; }
+.profit-day td { vertical-align:top; }
+.profit-day td small { display:block; margin-top:5px; }
