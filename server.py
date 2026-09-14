@@ -8,7 +8,7 @@ BASE=pathlib.Path(__file__).resolve().parent
 DB=pathlib.Path(os.environ.get('YUNA_DB',str(BASE/'data'/'clinic.db')))
 PORT=int(os.environ.get('YUNA_PORT','8765'))
 ROLES=['Owner','แพทย์','พยาบาล','Front','คลัง','บัญชี']
-ACCESS={'dashboard':ROLES,'patients':['Owner','แพทย์','พยาบาล','Front'],'appointments':['Owner','แพทย์','พยาบาล','Front'],'procedures':['Owner','แพทย์','พยาบาล'],'packages':['Owner','Front'],'inventory':['Owner','แพทย์','พยาบาล','คลัง'],'finance':['Owner','บัญชี','Front'],'fees':['Owner','บัญชี'],'users':['Owner'],'audit':['Owner'],'privacy':['Owner']}
+ACCESS={'dashboard':ROLES,'patients':['Owner','แพทย์','พยาบาล','Front'],'appointments':['Owner','แพทย์','พยาบาล','Front'],'procedures':['Owner','แพทย์','พยาบาล'],'packages':['Owner','Front'],'inventory':['Owner','แพทย์','พยาบาล','คลัง'],'finance':['Owner','บัญชี','Front'],'fees':['Owner','บัญชี'],'profits':['Owner'],'users':['Owner'],'audit':['Owner'],'privacy':['Owner']}
 WRITE={'patients':['Owner','แพทย์','พยาบาล','Front'],'clinical':['Owner','แพทย์','พยาบาล'],'appointments':['Owner','แพทย์','พยาบาล','Front'],'procedures':['Owner','แพทย์','พยาบาล'],'packages':['Owner','Front'],'inventory':['Owner','คลัง'],'finance':['Owner','บัญชี','Front'],'users':['Owner'],'privacy':['Owner']}
 LOCK=threading.RLock()
 CLOUD=bool(os.environ.get('VERCEL') or os.environ.get('YUNA_CLOUD')=='1')
@@ -202,6 +202,23 @@ class Handler(BaseHTTPRequestHandler):
             if u['role']=='Front':
                 data=[r for r in data if r['kind']!='expense']
                 for r in data:r.pop('source_profit',None)
+            return data
+        if key=='profits':
+            from decimal import Decimal, ROUND_HALF_UP
+            def dec(v):return Decimal(str(v or 0))
+            def amount(v):return float(v.quantize(Decimal('0.01'),rounding=ROUND_HALF_UP))
+            data=rows(c,"SELECT t.id,t.created,t.service,t.doctor,t.doctor_fee,t.staff,t.commission,p.name,p.nickname,p.hn,f.id receipt_id,f.amount revenue FROM procedures t JOIN patients p ON p.id=t.patient_id LEFT JOIN procedure_payments pp ON pp.procedure_id=t.id LEFT JOIN finance f ON f.id=pp.finance_id AND f.kind='receipt' ORDER BY t.created DESC,t.id DESC")
+            lots=rows(c,'SELECT x.procedure_id,x.qty,l.lot,l.cost,p.name FROM procedure_lots x JOIN lots l ON l.id=x.lot_id JOIN products p ON p.id=l.product_id ORDER BY x.procedure_id,l.id')
+            grouped={}
+            for lot in lots:grouped.setdefault(lot['procedure_id'],[]).append(lot)
+            for item in data:
+                item['lots']=grouped.get(item['id'],[])
+                cost=sum((dec(l['qty'])*dec(l['cost']) for l in item['lots']),Decimal(0))
+                item['product_cost']=amount(cost)
+                item['warnings']=[]
+                if item['receipt_id'] is None:item['warnings'].append('ยังไม่เชื่อมใบเสร็จ')
+                if any(l['cost'] is None or dec(l['cost'])<=0 for l in item['lots']):item['warnings'].append('ตรวจต้นทุน Lot ที่เป็นศูนย์ / ไม่ระบุ')
+                item['profit']=None if item['warnings'] else amount(dec(item['revenue'])-cost-dec(item['doctor_fee'])-dec(item['commission']))
             return data
         if key=='fees':return rows(c,'SELECT id,created,service,doctor,doctor_fee,staff,commission FROM procedures ORDER BY id DESC')
         if key=='users':return rows(c,'SELECT id,username,name,role,active FROM users ORDER BY id')
