@@ -9,7 +9,7 @@ DB=pathlib.Path(os.environ.get('YUNA_DB',str(BASE/'data'/'clinic.db')))
 PORT=int(os.environ.get('YUNA_PORT','8765'))
 ROLES=['Owner','แพทย์','พยาบาล','Front','คลัง','บัญชี']
 ACCESS={'dashboard':ROLES,'patients':['Owner','แพทย์','พยาบาล','Front'],'appointments':['Owner','แพทย์','พยาบาล','Front'],'procedures':['Owner','แพทย์','พยาบาล'],'packages':['Owner','Front'],'inventory':['Owner','แพทย์','พยาบาล','คลัง'],'finance':['Owner','บัญชี','Front'],'fees':['Owner','บัญชี'],'profits':['Owner'],'users':['Owner'],'audit':['Owner'],'privacy':['Owner']}
-WRITE={'patients':['Owner','แพทย์','พยาบาล','Front'],'clinical':['Owner','แพทย์','พยาบาล'],'appointments':['Owner','แพทย์','พยาบาล','Front'],'procedures':['Owner','แพทย์','พยาบาล'],'packages':['Owner','Front'],'inventory':['Owner','คลัง'],'finance':['Owner','บัญชี','Front'],'users':['Owner'],'privacy':['Owner']}
+WRITE={'profits':['Owner'],'patients':['Owner','แพทย์','พยาบาล','Front'],'clinical':['Owner','แพทย์','พยาบาล'],'appointments':['Owner','แพทย์','พยาบาล','Front'],'procedures':['Owner','แพทย์','พยาบาล'],'packages':['Owner','Front'],'inventory':['Owner','คลัง'],'finance':['Owner','บัญชี','Front'],'users':['Owner'],'privacy':['Owner']}
 LOCK=threading.RLock()
 CLOUD=bool(os.environ.get('VERCEL') or os.environ.get('YUNA_CLOUD')=='1')
 def origins():
@@ -203,6 +203,7 @@ class Handler(BaseHTTPRequestHandler):
                 data=[r for r in data if r['kind']!='expense']
                 for r in data:r.pop('source_profit',None)
             return data
+        if key=='profits' and path=='/api/profits/ledger':return self.ledger(c,u)
         if key=='profits':
             from decimal import Decimal, ROUND_HALF_UP
             def dec(v):return Decimal(str(v or 0))
@@ -227,10 +228,76 @@ class Handler(BaseHTTPRequestHandler):
             meta=one(c,"SELECT value FROM source_meta WHERE key='import'")
             return {'source':json.loads(meta['value']) if meta else {},'consents':rows(c,'SELECT c.*,p.name FROM consents c JOIN patients p ON p.id=c.patient_id ORDER BY c.id DESC'),'users':rows(c,'SELECT role,COUNT(*) n FROM users WHERE active=1 GROUP BY role')}
         raise ValueError('ไม่พบรายการ')
+    def ledger(self,c,u):
+        calculated={r['id']:r for r in self.read(c,u,'/api/profits',{})}
+        result=rows(c,"SELECT f.*,pp.procedure_id,pp.payment_method,ld.category,p.hn,p.nickname FROM finance f LEFT JOIN procedure_payments pp ON pp.finance_id=f.id LEFT JOIN ledger_details ld ON ld.finance_id=f.id LEFT JOIN patients p ON p.id=f.patient_id WHERE f.kind='receipt'")
+        for r in result:
+            r['key']='f'+str(r['id'])
+            auto=calculated.get(r['procedure_id'],{})
+            r['profit']=r['source_profit'] if r['source_profit'] is not None else auto.get('profit')
+            r['profit_mode']='manual' if r['source_profit'] is not None else 'auto'
+            r['category']=r['category'] or ''
+        excluded={r['procedure_id'] for r in rows(c,'SELECT procedure_id FROM ledger_exclusions')}
+        for pid,r in calculated.items():
+            if r['receipt_id'] is not None or pid in excluded:continue
+            p=one(c,'SELECT patient_id FROM procedures WHERE id=?',(pid,))
+            result.append(dict(key='p'+str(pid),id=None,procedure_id=pid,patient_id=p['patient_id'],customer=r['name'],nickname=r['nickname'],hn=r['hn'],description=r['service'],date=r['created'][:10],amount=None,profit=None,source_profit=None,profit_mode='auto',category='',payment_method=''))
+        for r in result:
+            r['revision']=hashlib.sha256(json.dumps(r,sort_keys=True,default=str).encode()).hexdigest()
+        return sorted(result,key=lambda r:(r['date'] or '',r['id'] or 0),reverse=True)
+
+    def save_ledger(self,c,u,action,d):
+        if action not in ['save','delete']:raise ValueError('คำสั่งไม่ถูกต้อง')
+        key=textval(d,'key',False);before=None
+        if key:
+            before=next((r for r in self.ledger(c,u) if r['key']==key),None)
+            if not before:raise ValueError('ไม่พบรายการ กรุณารีเฟรช')
+            if d.get('revision')!=before['revision']:raise ValueError('รายการถูกแก้ไขแล้ว กรุณารีเฟรชและเปิดใหม่')
+        if action=='delete':
+            if not before:raise ValueError('ไม่พบรายการ')
+            if before['procedure_id']:
+                c.execute('INSERT INTO ledger_exclusions(procedure_id) VALUES(?) ON CONFLICT(procedure_id) DO NOTHING',(before['procedure_id'],))
+            if before['id']:
+                c.execute('DELETE FROM ledger_details WHERE finance_id=?',(before['id'],))
+                c.execute('DELETE FROM procedure_payments WHERE finance_id=?',(before['id'],))
+                c.execute('DELETE FROM finance WHERE id=?',(before['id'],))
+            audit(c,u,'ลบรายการลงบัญชีและใบเสร็จ','profits',key,json.dumps(before,ensure_ascii=False))
+            return {'ok':True}
+        date=validdate(textval(d,'date'));customer=textval(d,'customer');description=textval(d,'description')
+        amount=number(d,'amount');category=textval(d,'category',False,100)
+        mode=textval(d,'profit_mode')
+        if mode not in ['auto','manual']:raise ValueError('วิธีคำนวณกำไรไม่ถูกต้อง')
+        profit=number(d,'profit',-1e10) if mode=='manual' else None
+        pid=number(d,'procedure_id',integer=True) or None
+        patient_id=number(d,'patient_id',integer=True) or None
+        if patient_id:patient(c,{'patient_id':patient_id})
+        fid=before['id'] if before else None
+        if pid:
+            procedure=one(c,'SELECT * FROM procedures WHERE id=?',(pid,))
+            if not procedure:raise ValueError('ไม่พบหัตถการ')
+            if patient_id and patient_id!=procedure['patient_id']:raise ValueError('ผู้รับบริการไม่ตรงกับหัตถการ')
+            patient_id=procedure['patient_id']
+            linked=one(c,'SELECT finance_id FROM procedure_payments WHERE procedure_id=?',(pid,))
+            if linked and linked['finance_id']!=fid:raise ValueError('หัตถการนี้มีใบเสร็จแล้ว กรุณาแก้ไขใบเสร็จเดิม')
+        if not fid and d.get('paid_confirmed') is not True:raise ValueError('กรุณายืนยันว่าได้รับชำระเงินแล้ว')
+        if fid:
+            c.execute('UPDATE finance SET patient_id=?,customer=?,description=?,amount=?,source_profit=?,date=? WHERE id=?',(patient_id,customer,description,amount,profit,date,fid))
+            c.execute('DELETE FROM procedure_payments WHERE finance_id=?',(fid,))
+        else:
+            fid=c.execute('INSERT INTO finance(kind,patient_id,customer,description,amount,source_profit,date,source) VALUES(?,?,?,?,?,?,?,?)',('receipt',patient_id,customer,description,amount,profit,date,'ตารางลงบัญชี')).lastrowid
+        c.execute('INSERT INTO ledger_details(finance_id,category) VALUES(?,?) ON CONFLICT(finance_id) DO UPDATE SET category=excluded.category',(fid,category))
+        if pid:
+            method=textval(d,'payment_method')
+            c.execute('INSERT INTO procedure_payments(procedure_id,finance_id,payment_method) VALUES(?,?,?)',(pid,fid,method))
+            c.execute('DELETE FROM ledger_exclusions WHERE procedure_id=?',(pid,))
+        audit(c,u,'แก้ไขรายการลงบัญชี' if before else 'เพิ่มรายการลงบัญชี','finance',fid,json.dumps({'before':before,'after':d},ensure_ascii=False))
+        return {'ok':True,'id':fid}
+
     def mutate(self,c,u,path,d):
         key=path.split('/')[2];action=path.split('/')[3] if len(path.split('/'))>3 else 'create'
         allow(u,'clinical' if key=='clinical' else key,True)
         eid='';detail=''
+        if key=='profits':return self.save_ledger(c,u,action,d)
         if key=='patients':
             if action=='member':
                 p=patient(c,d); member=textval(d,'member')

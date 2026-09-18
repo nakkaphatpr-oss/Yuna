@@ -23,3 +23,6 @@ CREATE TABLE IF NOT EXISTS procedure_faces(procedure_id BIGINT PRIMARY KEY REFER
 CREATE TABLE IF NOT EXISTS procedure_details(procedure_id BIGINT PRIMARY KEY REFERENCES procedures(id),appointment_id BIGINT UNIQUE REFERENCES appointments(id),commission_base DOUBLE PRECISION NOT NULL DEFAULT 0,commission_rate DOUBLE PRECISION NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS procedure_payments(procedure_id BIGINT PRIMARY KEY REFERENCES procedures(id),finance_id BIGINT NOT NULL UNIQUE REFERENCES finance(id),payment_method TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS procedure_pricing(procedure_id BIGINT PRIMARY KEY REFERENCES procedures(id),items TEXT NOT NULL,subtotal DOUBLE PRECISION NOT NULL,service_fee DOUBLE PRECISION NOT NULL,discount DOUBLE PRECISION NOT NULL,net DOUBLE PRECISION NOT NULL);
+
+CREATE TABLE IF NOT EXISTS ledger_details(finance_id INTEGER PRIMARY KEY REFERENCES finance(id),category TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS ledger_exclusions(procedure_id INTEGER PRIMARY KEY REFERENCES procedures(id));
