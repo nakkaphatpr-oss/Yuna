@@ -237,16 +237,39 @@ class Handler(BaseHTTPRequestHandler):
             r['profit']=r['source_profit'] if r['source_profit'] is not None else auto.get('profit')
             r['profit_mode']='manual' if r['source_profit'] is not None else 'auto'
             r['category']=r['category'] or ''
+            r['calculation_cost']=None if not auto or any(l['cost'] is None or float(l['cost'])<=0 for l in auto.get('lots',[])) else round(auto['product_cost']+float(auto['doctor_fee'] or 0)+float(auto['commission'] or 0),2)
         excluded={r['procedure_id'] for r in rows(c,'SELECT procedure_id FROM ledger_exclusions')}
         for pid,r in calculated.items():
             if r['receipt_id'] is not None or pid in excluded:continue
             p=one(c,'SELECT patient_id FROM procedures WHERE id=?',(pid,))
             result.append(dict(key='p'+str(pid),id=None,procedure_id=pid,patient_id=p['patient_id'],customer=r['name'],nickname=r['nickname'],hn=r['hn'],description=r['service'],date=r['created'][:10],amount=None,profit=None,source_profit=None,profit_mode='auto',category='',payment_method=''))
         for r in result:
+            if 'calculation_cost' not in r:
+                auto=calculated.get(r['procedure_id'],{})
+                r['calculation_cost']=None if not auto or any(l['cost'] is None or float(l['cost'])<=0 for l in auto.get('lots',[])) else round(auto['product_cost']+float(auto['doctor_fee'] or 0)+float(auto['commission'] or 0),2)
             r['revision']=hashlib.sha256(json.dumps(r,sort_keys=True,default=str).encode()).hexdigest()
         return sorted(result,key=lambda r:(r['date'] or '',r['id'] or 0),reverse=True)
 
     def save_ledger(self,c,u,action,d):
+        if action=='batch':
+            changes=d.get('changes')
+            if not isinstance(changes,list) or not 1<=len(changes)<=200:raise ValueError('บันทึกได้ครั้งละ 1–200 รายการ')
+            keys=[x.get('key') for x in changes if isinstance(x,dict) and x.get('key')]
+            if len(keys)!=len(set(keys)):raise ValueError('พบรายการซ้ำในชุดที่บันทึก')
+            c.execute('SAVEPOINT ledger_batch')
+            try:
+                for index,item in enumerate(changes):
+                    if not isinstance(item,dict):raise ValueError('ข้อมูลรายการไม่ถูกต้อง')
+                    operation=item.get('operation','save')
+                    if operation not in ['save','delete']:raise ValueError('คำสั่งไม่ถูกต้อง')
+                    try:self.save_ledger(c,u,operation,item)
+                    except ValueError as exc:raise ValueError('รายการที่ '+str(index+1)+': '+str(exc)) from exc
+                c.execute('RELEASE SAVEPOINT ledger_batch')
+            except Exception:
+                c.execute('ROLLBACK TO SAVEPOINT ledger_batch')
+                c.execute('RELEASE SAVEPOINT ledger_batch')
+                raise
+            return {'ok':True,'count':len(changes)}
         if action not in ['save','delete']:raise ValueError('คำสั่งไม่ถูกต้อง')
         key=textval(d,'key',False);before=None
         if key:
@@ -612,4 +635,3 @@ if __name__=='__main__':
         import webbrowser
         threading.Timer(.5,lambda:webbrowser.open(f'http://127.0.0.1:{PORT}')).start()
     httpd.serve_forever()
-
