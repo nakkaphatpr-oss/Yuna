@@ -44,7 +44,7 @@ function table(headers,rs,emptyText='ยังไม่มีรายการ'
 function person(p,showNickname=false){return `<div class="person"><span class="avatar">${esc(p.name?.slice(0,1)||'Y')}</span><div><b>${esc(p.name)}</b>${showNickname?`<small class="patient-nickname">ชื่อเล่น: ${esc(p.nickname?.trim()||'ยังไม่ระบุ')}</small>`:''}<small>${esc(p.hn?'HN '+p.hn:p.nickname||'')}</small></div></div>`}
 function searchBox(placeholder='ค้นหา…'){return `<div class="search">${icon('search')}<input id="search" value="${esc(query)}" placeholder="${placeholder}" aria-label="${placeholder}"></div>`}
 function tabs(items){if(!items.find(t=>t[0]===tab))tab=items[0][0];return `<div class="tabs">${items.map(t=>btn(t[1],'tab',`data-tab="${t[0]}"`,tab===t[0]?'active':'')).join('')}</div>`}
-function paginate(arr,fn){const size=12,total=arr.length;page=Math.max(1,Math.min(page,Math.ceil(total/size)||1));return fn(arr.slice((page-1)*size,page*size))+`<div class="pagination"><span>${total?((page-1)*size+1)+'–'+Math.min(page*size,total):0} จาก ${count(total)} รายการ</span><div class="actions">${btn('‹','page','data-step="-1" '+(page===1?'disabled':''))}<span>${page} / ${Math.ceil(total/size)||1}</span>${btn('›','page','data-step="1" '+(page*size>=total?'disabled':''))}</div></div>`}
+function paginate(arr,fn){const size=12,total=arr.length,pages=Math.ceil(total/size)||1;page=Math.max(1,Math.min(page,pages));const numbers=[...new Set([1,pages,page-2,page-1,page,page+1,page+2])].filter(n=>n>=1&&n<=pages).sort((a,b)=>a-b);return fn(arr.slice((page-1)*size,page*size))+`<div class="pagination"><span>${total?((page-1)*size+1)+'–'+Math.min(page*size,total):0} จาก ${count(total)} รายการ</span><nav class="actions page-controls" aria-label="เปลี่ยนหน้า">${btn('‹','page','aria-label="หน้าก่อนหน้า" data-step="-1" '+(page===1?'disabled':''))}${numbers.map((n,i)=>(i&&n-numbers[i-1]>1?'<span aria-hidden="true">…</span>':'')+btn(n,'page-number',`data-page="${n}" aria-label="หน้า ${n}" ${n===page?'aria-current="page"':''}`,n===page?'primary':'')).join('')}${btn('›','page','aria-label="หน้าถัดไป" data-step="1" '+(page===pages?'disabled':''))}<label class="page-jump">ไปหน้า <input type="number" id="page-jump" min="1" max="${pages}" value="${page}" aria-label="เลขหน้าที่ต้องการ"> / ${pages}</label>${btn('ไป','page-jump')}</nav></div>`}
 function matches(obj){return !query||Object.values(obj).some(v=>String(v??'').toLowerCase().includes(query.toLowerCase()))}
 function render(){if(!me)return;const fn={dashboard:dashboard,patients:patients,appointments:appointments,procedures:procedures,packages:packages,inventory:inventory,finance:finance,fees:fees,profits:profits,users:users,audit:audit,privacy:privacy}[view];$('#content').innerHTML=fn()+footer();if(view==='dashboard')bindRevenueChart()}
 let revenueRange='12',ledgerExtraColumns=false;
@@ -285,7 +285,7 @@ function printDoc(r){$('#print').innerHTML=`<h1>YUNA CLINIC</h1><p>${r.kind==='q
 document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;try{
  if(b.dataset.view)return await loadView(b.dataset.view);
  const a=b.dataset.act,id=Number(b.dataset.id);if(!a)return;
- if(a==='sheet-add'){query='';sheetNew();page=Math.ceil(sheetRows().length/12);render();sheetStatus();return}
+ if(a==='sheet-add'){query='';sheetNew();page=1;render();sheetStatus();$('.sheet-scroll')?.scrollTo(0,0);$('[data-sheet-key]')?.focus();return}
  if(a==='sheet-save')return sheetSave();
  if(a==='sheet-link')return sheetLink(b.dataset.key);
  if(a==='sheet-delete'){const key=b.dataset.key;if(key.startsWith('new:'))sheetDrafts.delete(key);else {const r=sheetDraft(key);r.deleted=!r.deleted}render();sheetStatus();return}
@@ -300,6 +300,8 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
  if(a==='notifications'){if(me.views.includes('inventory')){await loadView('inventory');toast('ดูสินค้าใกล้หมดและ Lot ใกล้หมดอายุได้ในหน้านี้')}else if(me.views.includes('appointments')){await loadView('appointments');tab='followup';render()}else toast('ไม่มีการแจ้งเตือนเพิ่มเติมสำหรับบทบาทนี้');return;}
  if(a==='tab'){tab=b.dataset.tab;page=1;query='';filter='';render();return;}
  if(a==='page'){page+=Number(b.dataset.step);render();return;}
+ if(a==='page-number'){page=Number(b.dataset.page);render();return}
+ if(a==='page-jump'){const input=$('#page-jump');if(!input.reportValidity()||!input.value)return;page=Number(input.value);render();return}
  if(a==='clear-filter'){filter='';render();return;}
  if(a==='procedure-edit')return editProcedureItems(id);
  if(a==='patient')return patientDetail(id);
@@ -383,7 +385,7 @@ const sheetDrafts=new Map();
 let sheetSequence=0,sheetBusy=false,sheetOrder='newest';
 const sheetColumns=[['date','วันที่','date'],['customer','ลูกค้า','text'],['description','รายการ','text'],['amount','รายได้ (บาท)','number'],['profit_mode','วิธีกำไร','select'],['profit','กำไร (บาท)','number'],['category','ประเภทหัตถการ','text']];
 function sheetDate(value){const v=value.trim(),m=v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);if(!m)return v;let year=Number(m[3]);if(year>2400)year-=543;return year+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0')}
-function sheetRows(){return [...(cache.profits||[]).map(r=>sheetDrafts.get(r.key)||r),...[...sheetDrafts.values()].filter(r=>r.key.startsWith('new:'))].filter(matches).filter(r=>!filter||(r.date||'').startsWith(filter)).sort((a,b)=>a.key.startsWith('new:')||b.key.startsWith('new:')?Number(a.key.startsWith('new:'))-Number(b.key.startsWith('new:')):(sheetOrder==='oldest'?1:-1)*String(a.date||'').localeCompare(String(b.date||'')))}
+function sheetRows(){return [...(cache.profits||[]).map(r=>sheetDrafts.get(r.key)||r),...[...sheetDrafts.values()].filter(r=>r.key.startsWith('new:'))].filter(matches).filter(r=>!filter||(r.date||'').startsWith(filter)).sort((a,b)=>{const an=a.key.startsWith('new:'),bn=b.key.startsWith('new:');if(an&&bn)return Number(b.key.slice(4))-Number(a.key.slice(4));if(an||bn)return Number(bn)-Number(an);return (sheetOrder==='oldest'?1:-1)*String(a.date||'').localeCompare(String(b.date||''))})}
 function sheetProfit(r){if(r.profit_mode==='manual')return r.profit;return r.calculation_cost==null?null:Math.round((Number(r.amount||0)-r.calculation_cost)*100)/100}
 function sheetDraft(key){if(!sheetDrafts.has(key)){const r=(cache.profits||[]).find(r=>r.key===key);if(r)sheetDrafts.set(key,{...r})}return sheetDrafts.get(key)}
 function sheetNew(){const r={key:'new:'+(++sheetSequence),date:filter?filter+'-01':localDate(),customer:'',description:'',amount:'',profit_mode:'manual',profit:'',category:'',patient_id:'',procedure_id:'',payment_method:'เงินสด',calculation_cost:null};sheetDrafts.set(r.key,r);return r}

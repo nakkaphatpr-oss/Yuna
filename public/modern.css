@@ -122,4 +122,9 @@ h1,h2,h3{font-family:inherit;color:#25332e;letter-spacing:-.3px}h1,.pagehead h1{
 .sheet-deleted { opacity:.6; background:#fbeceb; }
 .sheet-deleted input { text-decoration:line-through; }
 .sheet-card .ledger-heading { flex-wrap:wrap; }
+.pagination { flex-wrap:wrap; gap:14px; }
+.page-controls { flex-wrap:wrap; }
+.page-controls button { min-width:34px; min-height:34px; }
+.page-jump { display:flex; align-items:center; gap:8px; white-space:nowrap; margin-left:8px; }
+.page-jump input { width:76px; padding:6px 8px; }
 @media(max-width:600px) { .ledger-heading { padding:18px; align-items:flex-start; } .ledger-heading button { max-width:145px; } .ledger-toolbar .actions { width:100%; } .ledger-card .tablewrap { overflow-x:auto; } }
